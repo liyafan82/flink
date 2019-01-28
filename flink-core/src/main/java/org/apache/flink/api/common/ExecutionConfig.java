@@ -160,6 +160,9 @@ public class ExecutionConfig implements Serializable, Archiveable<ArchivedExecut
 	/** The default input dependency constraint to schedule tasks. */
 	private InputDependencyConstraint defaultInputDependencyConstraint = InputDependencyConstraint.ANY;
 
+	/** The option for compiling generated Java code. */
+	private CompilationOption compilationOption = CompilationOption.FAST;
+
 	// ------------------------------- User code values --------------------------------------------
 
 	private GlobalJobParameters globalJobParameters;
@@ -517,6 +520,22 @@ public class ExecutionConfig implements Serializable, Archiveable<ArchivedExecut
 	 */
 	public ExecutionMode getExecutionMode() {
 		return executionMode;
+	}
+
+	/**
+	 * Sets the option for compiling generated Java code.
+	 * @param compilationOption
+	 */
+	public void setCompilationOption(CompilationOption compilationOption) {
+		this.compilationOption = compilationOption;
+	}
+
+	/**
+	 * Gets the option for compiling generated Java code.
+	 * @return
+	 */
+	public CompilationOption getCompileOption() {
+		return this.compilationOption;
 	}
 
 	/**
