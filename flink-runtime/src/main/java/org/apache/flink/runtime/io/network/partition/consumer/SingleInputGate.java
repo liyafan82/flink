@@ -27,6 +27,7 @@ import org.apache.flink.runtime.event.AbstractEvent;
 import org.apache.flink.runtime.event.TaskEvent;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.io.network.NetworkEnvironment;
+import org.apache.flink.runtime.io.network.TaskEventPublisher;
 import org.apache.flink.runtime.io.network.api.EndOfPartitionEvent;
 import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
@@ -421,7 +422,8 @@ public class SingleInputGate implements InputGate {
 		}
 	}
 
-	public void releaseAllResources() throws IOException {
+	@Override
+	public void close() throws IOException {
 		boolean released = false;
 		synchronized (requestLock) {
 			if (!isReleased) {
@@ -485,7 +487,7 @@ public class SingleInputGate implements InputGate {
 
 				// Sanity checks
 				if (numberOfInputChannels != inputChannels.size()) {
-					throw new IllegalStateException("Bug in input gate setup logic: mismatch between" +
+					throw new IllegalStateException("Bug in input gate setup logic: mismatch between " +
 							"number of total input channels and the currently set number of input " +
 							"channels.");
 				}
@@ -664,6 +666,7 @@ public class SingleInputGate implements InputGate {
 		ExecutionAttemptID executionId,
 		InputGateDeploymentDescriptor igdd,
 		NetworkEnvironment networkEnvironment,
+		TaskEventPublisher taskEventPublisher,
 		TaskActions taskActions,
 		TaskIOMetricGroup metrics) {
 
@@ -693,7 +696,7 @@ public class SingleInputGate implements InputGate {
 			if (partitionLocation.isLocal()) {
 				inputChannels[i] = new LocalInputChannel(inputGate, i, partitionId,
 					networkEnvironment.getResultPartitionManager(),
-					networkEnvironment.getTaskEventDispatcher(),
+					taskEventPublisher,
 					networkEnvironment.getPartitionRequestInitialBackoff(),
 					networkEnvironment.getPartitionRequestMaxBackoff(),
 					metrics
@@ -715,7 +718,7 @@ public class SingleInputGate implements InputGate {
 			else if (partitionLocation.isUnknown()) {
 				inputChannels[i] = new UnknownInputChannel(inputGate, i, partitionId,
 					networkEnvironment.getResultPartitionManager(),
-					networkEnvironment.getTaskEventDispatcher(),
+					taskEventPublisher,
 					networkEnvironment.getConnectionManager(),
 					networkEnvironment.getPartitionRequestInitialBackoff(),
 					networkEnvironment.getPartitionRequestMaxBackoff(),

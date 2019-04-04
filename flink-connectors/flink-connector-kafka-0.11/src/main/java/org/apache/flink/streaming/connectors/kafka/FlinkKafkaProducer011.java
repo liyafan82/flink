@@ -41,11 +41,11 @@ import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.connectors.kafka.internal.FlinkKafkaProducer;
 import org.apache.flink.streaming.connectors.kafka.internal.TransactionalIdsGenerator;
 import org.apache.flink.streaming.connectors.kafka.internal.metrics.KafkaMetricMutableWrapper;
+import org.apache.flink.streaming.connectors.kafka.internals.KeyedSerializationSchemaWrapper;
 import org.apache.flink.streaming.connectors.kafka.partitioner.FlinkFixedPartitioner;
 import org.apache.flink.streaming.connectors.kafka.partitioner.FlinkKafkaDelegatePartitioner;
 import org.apache.flink.streaming.connectors.kafka.partitioner.FlinkKafkaPartitioner;
 import org.apache.flink.streaming.util.serialization.KeyedSerializationSchema;
-import org.apache.flink.streaming.util.serialization.KeyedSerializationSchemaWrapper;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.IOUtils;
 import org.apache.flink.util.NetUtils;
@@ -152,7 +152,7 @@ public class FlinkKafkaProducer011<IN>
 	 * <p>The range of available to use transactional ids is:
 	 * {@code [0, getNumberOfParallelSubtasks() * kafkaProducersPoolSize) }
 	 *
-	 * <p>This means that if we decrease {@code getNumberOfParallelSubtasks()} by a factor larger then
+	 * <p>This means that if we decrease {@code getNumberOfParallelSubtasks()} by a factor larger than
 	 * {@code SAFE_SCALE_DOWN_FACTOR} we can have a left some lingering transaction.
 	 */
 	public static final int SAFE_SCALE_DOWN_FACTOR = 5;
@@ -1228,11 +1228,6 @@ public class FlinkKafkaProducer011<IN>
 			target.writeShort(source.readShort());
 		}
 
-		@Override
-		public boolean canEqual(Object obj) {
-			return obj instanceof TransactionStateSerializer;
-		}
-
 		// ------------------------------------------------------------------------
 
 		@Override
@@ -1325,11 +1320,6 @@ public class FlinkKafkaProducer011<IN>
 			for (int i = 0; i < numIds; i++) {
 				target.writeUTF(source.readUTF());
 			}
-		}
-
-		@Override
-		public boolean canEqual(Object obj) {
-			return obj instanceof ContextStateSerializer;
 		}
 
 		// ------------------------------------------------------------------------

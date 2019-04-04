@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.entrypoint;
 
 import org.apache.flink.api.common.time.Time;
+import org.apache.flink.configuration.ClusterOptions;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 import org.apache.flink.configuration.Configuration;
@@ -31,7 +32,6 @@ import org.apache.flink.configuration.WebOptions;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.runtime.akka.AkkaUtils;
 import org.apache.flink.runtime.blob.BlobServer;
-import org.apache.flink.runtime.blob.TransientBlobCache;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.concurrent.ScheduledExecutor;
@@ -53,10 +53,13 @@ import org.apache.flink.runtime.rpc.akka.AkkaRpcServiceUtils;
 import org.apache.flink.runtime.security.SecurityConfiguration;
 import org.apache.flink.runtime.security.SecurityContext;
 import org.apache.flink.runtime.security.SecurityUtils;
+import org.apache.flink.runtime.util.ExecutorThreadFactory;
+import org.apache.flink.runtime.util.Hardware;
 import org.apache.flink.runtime.util.ZooKeeperUtils;
 import org.apache.flink.runtime.webmonitor.retriever.impl.AkkaQueryServiceRetriever;
 import org.apache.flink.util.AutoCloseableAsync;
 import org.apache.flink.util.ExceptionUtils;
+import org.apache.flink.util.ExecutorUtils;
 import org.apache.flink.util.FileUtils;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.ShutdownHookUtil;
@@ -72,7 +75,6 @@ import javax.annotation.concurrent.GuardedBy;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.UndeclaredThrowableException;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.UUID;
@@ -80,6 +82,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -130,13 +134,13 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 	private RpcService commonRpcService;
 
 	@GuardedBy("lock")
+	private ExecutorService ioExecutor;
+
+	@GuardedBy("lock")
 	private ActorSystem metricQueryServiceActorSystem;
 
 	@GuardedBy("lock")
 	private ArchivedExecutionGraphStore archivedExecutionGraphStore;
-
-	@GuardedBy("lock")
-	private TransientBlobCache transientBlobCache;
 
 	private final Thread shutDownHook;
 
@@ -258,7 +262,10 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 			configuration.setString(JobManagerOptions.ADDRESS, commonRpcService.getAddress());
 			configuration.setInteger(JobManagerOptions.PORT, commonRpcService.getPort());
 
-			haServices = createHaServices(configuration, commonRpcService.getExecutor());
+			ioExecutor = Executors.newFixedThreadPool(
+				Hardware.getNumberCPUCores(),
+				new ExecutorThreadFactory("cluster-io"));
+			haServices = createHaServices(configuration, ioExecutor);
 			blobServer = new BlobServer(configuration, haServices.createBlobStore());
 			blobServer.start();
 			heartbeatServices = createHeartbeatServices(configuration);
@@ -270,12 +277,6 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 			metricRegistry.startQueryService(metricQueryServiceActorSystem, null);
 
 			archivedExecutionGraphStore = createSerializableExecutionGraphStore(configuration, commonRpcService.getScheduledExecutor());
-
-			transientBlobCache = new TransientBlobCache(
-				configuration,
-				new InetSocketAddress(
-					commonRpcService.getAddress(),
-					blobServer.getPort()));
 		}
 	}
 
@@ -324,6 +325,8 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 	}
 
 	protected CompletableFuture<Void> stopClusterServices(boolean cleanupHaData) {
+		final long shutdownTimeout = configuration.getLong(ClusterOptions.CLUSTER_SERVICES_SHUTDOWN_TIMEOUT);
+
 		synchronized (lock) {
 			Throwable exception = null;
 
@@ -357,20 +360,16 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 				}
 			}
 
-			if (transientBlobCache != null) {
-				try {
-					transientBlobCache.close();
-				} catch (Throwable t) {
-					exception = ExceptionUtils.firstOrSuppressed(t, exception);
-				}
-			}
-
 			if (metricRegistry != null) {
 				terminationFutures.add(metricRegistry.shutdown());
 			}
 
 			if (metricQueryServiceActorSystem != null) {
 				terminationFutures.add(AkkaUtils.terminateActorSystem(metricQueryServiceActorSystem));
+			}
+
+			if (ioExecutor != null) {
+				terminationFutures.add(ExecutorUtils.nonBlockingShutdown(shutdownTimeout, TimeUnit.MILLISECONDS, ioExecutor));
 			}
 
 			if (commonRpcService != null) {

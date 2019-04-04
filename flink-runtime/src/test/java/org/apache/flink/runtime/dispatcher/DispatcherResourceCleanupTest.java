@@ -178,12 +178,13 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
 		failJobMasterCreationWith = new AtomicReference<>();
 
+		TestingResourceManagerGateway resourceManagerGateway = new TestingResourceManagerGateway();
 		dispatcher = new TestingDispatcher(
 			rpcService,
 			Dispatcher.DISPATCHER_NAME + UUID.randomUUID(),
 			configuration,
 			highAvailabilityServices,
-			new TestingResourceManagerGateway(),
+			() -> CompletableFuture.completedFuture(resourceManagerGateway),
 			blobServer,
 			new HeartbeatServices(1000L, 1000L),
 			UnregisteredMetricGroups.createUnregisteredJobManagerMetricGroup(),
@@ -207,8 +208,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 	@After
 	public void teardown() throws Exception {
 		if (dispatcher != null) {
-			dispatcher.shutDown();
-			dispatcher.getTerminationFuture().get();
+			dispatcher.close();
 		}
 
 		if (fatalErrorHandler != null) {
@@ -228,8 +228,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 		submitJob();
 
 		// complete the job
-		resultFuture.complete(new ArchivedExecutionGraphBuilder().setJobID(jobId).setState(JobStatus.FINISHED).build());
-		terminationFuture.complete(null);
+		finishJob();
 
 		assertThatHABlobsHaveBeenRemoved();
 	}
@@ -293,7 +292,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 	public void testBlobServerCleanupWhenClosingDispatcher() throws Exception {
 		submitJob();
 
-		dispatcher.shutDown();
+		dispatcher.closeAsync();
 		terminationFuture.complete(null);
 		dispatcher.getTerminationFuture().get();
 
@@ -356,6 +355,43 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 		}
 
 		assertThat(submissionFuture.get(), equalTo(Acknowledge.get()));
+	}
+
+	/**
+	 * Tests that a duplicate job submission won't delete any job meta data
+	 * (submitted job graphs, blobs, etc.).
+	 */
+	@Test
+	public void testDuplicateJobSubmissionDoesNotDeleteJobMetaData() throws Exception {
+		submitJob();
+
+		final CompletableFuture<Acknowledge> submissionFuture = dispatcherGateway.submitJob(jobGraph, timeout);
+
+		try {
+			try {
+				submissionFuture.get();
+				fail("Expected a JobSubmissionFailure.");
+			} catch (ExecutionException ee) {
+				assertThat(ExceptionUtils.findThrowable(ee, JobSubmissionException.class).isPresent(), is(true));
+			}
+
+			assertThatHABlobsHaveNotBeenRemoved();
+		} finally {
+			finishJob();
+		}
+
+		assertThatHABlobsHaveBeenRemoved();
+	}
+
+	private void finishJob() {
+		resultFuture.complete(new ArchivedExecutionGraphBuilder().setJobID(jobId).setState(JobStatus.FINISHED).build());
+		terminationFuture.complete(null);
+	}
+
+	private void assertThatHABlobsHaveNotBeenRemoved() {
+		assertThat(cleanupJobFuture.isDone(), is(false));
+		assertThat(deleteAllHABlobsFuture.isDone(), is(false));
+		assertThat(blobFile.exists(), is(true));
 	}
 
 	/**

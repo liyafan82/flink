@@ -87,20 +87,7 @@ public class RecordWriter<T extends IOReadableWritable> {
 	/** To avoid synchronization overhead on the critical path, best-effort error tracking is enough here.*/
 	private Throwable flusherException;
 
-	public RecordWriter(ResultPartitionWriter writer) {
-		this(writer, new RoundRobinChannelSelector<T>());
-	}
-
-	@SuppressWarnings("unchecked")
-	public RecordWriter(ResultPartitionWriter writer, ChannelSelector<T> channelSelector) {
-		this(writer, channelSelector, -1, null);
-	}
-
-	public RecordWriter(
-			ResultPartitionWriter writer,
-			ChannelSelector<T> channelSelector,
-			long timeout,
-			String taskName) {
+	RecordWriter(ResultPartitionWriter writer, ChannelSelector<T> channelSelector, long timeout, String taskName) {
 		this.targetPartition = writer;
 		this.channelSelector = channelSelector;
 		this.numberOfChannels = writer.getNumberOfSubpartitions();
@@ -130,7 +117,7 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 	public void emit(T record) throws IOException, InterruptedException {
 		checkErroneous();
-		emit(record, channelSelector.selectChannels(record));
+		emit(record, channelSelector.selectChannel(record));
 	}
 
 	/**
@@ -139,25 +126,10 @@ public class RecordWriter<T extends IOReadableWritable> {
 	 */
 	public void broadcastEmit(T record) throws IOException, InterruptedException {
 		checkErroneous();
-		emit(record, broadcastChannels);
-	}
-
-	/**
-	 * This is used to send LatencyMarks to a random target channel.
-	 */
-	public void randomEmit(T record) throws IOException, InterruptedException {
-		checkErroneous();
-		serializer.serializeRecord(record);
-		if (copyFromSerializerToTargetChannel(rng.nextInt(numberOfChannels))) {
-			serializer.prune();
-		}
-	}
-
-	private void emit(T record, int[] targetChannels) throws IOException, InterruptedException {
 		serializer.serializeRecord(record);
 
 		boolean pruneAfterCopying = false;
-		for (int channel : targetChannels) {
+		for (int channel : broadcastChannels) {
 			if (copyFromSerializerToTargetChannel(channel)) {
 				pruneAfterCopying = true;
 			}
@@ -165,6 +137,21 @@ public class RecordWriter<T extends IOReadableWritable> {
 
 		// Make sure we don't hold onto the large intermediate serialization buffer for too long
 		if (pruneAfterCopying) {
+			serializer.prune();
+		}
+	}
+
+	/**
+	 * This is used to send LatencyMarks to a random target channel.
+	 */
+	public void randomEmit(T record) throws IOException, InterruptedException {
+		emit(record, rng.nextInt(numberOfChannels));
+	}
+
+	private void emit(T record, int targetChannel) throws IOException, InterruptedException {
+		serializer.serializeRecord(record);
+
+		if (copyFromSerializerToTargetChannel(targetChannel)) {
 			serializer.prune();
 		}
 	}
@@ -316,7 +303,6 @@ public class RecordWriter<T extends IOReadableWritable> {
 	}
 
 	// ------------------------------------------------------------------------
-
 
 	/**
 	 * A dedicated thread that periodically flushes the output buffers, to set upper latency bounds.
