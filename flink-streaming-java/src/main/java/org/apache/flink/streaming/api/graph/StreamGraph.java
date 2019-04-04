@@ -18,7 +18,6 @@
 package org.apache.flink.streaming.api.graph;
 
 import org.apache.flink.annotation.Internal;
-import org.apache.flink.api.common.CompilationOption;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.io.InputFormat;
@@ -29,8 +28,6 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.InputTypeConfigurable;
 import org.apache.flink.api.java.typeutils.MissingTypeInfo;
-import org.apache.flink.configuration.CoreOptions;
-import org.apache.flink.configuration.GlobalConfiguration;
 import org.apache.flink.optimizer.plan.StreamingPlan;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
@@ -105,11 +102,6 @@ public class StreamGraph extends StreamingPlan {
 		this.environment = environment;
 		this.executionConfig = environment.getConfig();
 		this.checkpointConfig = environment.getCheckpointConfig();
-
-		// get compilation option
-		CompilationOption compilationOption = CompilationOption.inTest ? CompilationOption.currentOption :
-			CompilationOption.valueOf(GlobalConfiguration.loadConfiguration().getString(CoreOptions.CODEGEN_COMPILATION_OPTION).toUpperCase());
-		this.executionConfig.setCompilationOption(compilationOption);
 
 		// create an empty new stream graph.
 		clear();

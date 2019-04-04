@@ -18,9 +18,7 @@
 
 package org.apache.flink.table.codegen
 
-import org.apache.flink.api.common.{CompilationOption, InvalidProgramException}
-import org.apache.flink.api.common.functions.RuntimeContext
-import org.apache.flink.streaming.util.JCACompiler
+import org.apache.flink.api.common.InvalidProgramException
 import org.codehaus.commons.compiler.CompileException
 import org.codehaus.janino.SimpleCompiler
 
@@ -39,14 +37,5 @@ trait Compiler[T] {
           "This is a bug. Please file an issue.", t)
     }
     compiler.getClassLoader.loadClass(name).asInstanceOf[Class[T]]
-  }
-
-  @throws(classOf[CompileException])
-  def compile(ctx: RuntimeContext, name: String, code: String): Class[T] = {
-    if (ctx.getExecutionConfig.getCompileOption == CompilationOption.FAST) {
-      compile(ctx.getUserCodeClassLoader, name, code)
-    } else {
-      JCACompiler.getInstance.getCodeClass(name, code).asInstanceOf[Class[T]]
-    }
   }
 }

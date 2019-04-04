@@ -23,7 +23,6 @@ import org.apache.flink.api.common.functions.{FlatMapFunction, RichFlatMapFuncti
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable
 import org.apache.flink.configuration.Configuration
-import org.apache.flink.streaming.api.functions.CodeGenFunction
 import org.apache.flink.table.codegen.Compiler
 import org.apache.flink.table.util.Logging
 import org.apache.flink.types.Row
@@ -36,8 +35,7 @@ class FlatMapRunner(
   extends RichFlatMapFunction[Row, Row]
   with ResultTypeQueryable[Row]
   with Compiler[FlatMapFunction[Row, Row]]
-  with Logging
-  with CodeGenFunction {
+  with Logging {
 
   private var function: FlatMapFunction[Row, Row] = _
 
@@ -58,8 +56,4 @@ class FlatMapRunner(
   override def close(): Unit = {
     FunctionUtils.closeFunction(function)
   }
-
-  override def getName: String = name
-
-  override def getCode: String = code
 }
