@@ -19,21 +19,12 @@
 package org.apache.flink.runtime.io.network;
 
 import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
-import org.apache.flink.runtime.io.disk.iomanager.IOManager;
-import org.apache.flink.runtime.io.disk.iomanager.IOManager.IOMode;
 import org.apache.flink.runtime.io.network.buffer.BufferPool;
 import org.apache.flink.runtime.io.network.buffer.NetworkBufferPool;
 import org.apache.flink.runtime.io.network.partition.ResultPartition;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionManager;
 import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGate;
-import org.apache.flink.runtime.jobgraph.JobVertexID;
-import org.apache.flink.runtime.query.KvStateClientProxy;
-import org.apache.flink.runtime.query.KvStateRegistry;
-import org.apache.flink.runtime.query.KvStateServer;
-import org.apache.flink.runtime.query.TaskKvStateRegistry;
-import org.apache.flink.runtime.state.internal.InternalKvState;
 import org.apache.flink.runtime.taskmanager.Task;
 import org.apache.flink.runtime.taskmanager.TaskManager;
 import org.apache.flink.util.ExceptionUtils;
@@ -63,18 +54,7 @@ public class NetworkEnvironment {
 
 	private final ResultPartitionManager resultPartitionManager;
 
-	private final TaskEventDispatcher taskEventDispatcher;
-
-	/** Server for {@link InternalKvState} requests. */
-	private KvStateServer kvStateServer;
-
-	/** Proxy for the queryable state client. */
-	private KvStateClientProxy kvStateProxy;
-
-	/** Registry for {@link InternalKvState} instances. */
-	private final KvStateRegistry kvStateRegistry;
-
-	private final IOManager.IOMode defaultIOMode;
+	private final TaskEventPublisher taskEventPublisher;
 
 	private final int partitionRequestInitialBackoff;
 
@@ -103,10 +83,6 @@ public class NetworkEnvironment {
 			new LocalConnectionManager(),
 			new ResultPartitionManager(),
 			new TaskEventDispatcher(),
-			new KvStateRegistry(),
-			null,
-			null,
-			IOManager.IOMode.SYNC,
 			partitionRequestInitialBackoff,
 			partitionRequestMaxBackoff,
 			networkBuffersPerChannel,
@@ -115,30 +91,20 @@ public class NetworkEnvironment {
 	}
 
 	public NetworkEnvironment(
-		NetworkBufferPool networkBufferPool,
-		ConnectionManager connectionManager,
-		ResultPartitionManager resultPartitionManager,
-		TaskEventDispatcher taskEventDispatcher,
-		KvStateRegistry kvStateRegistry,
-		KvStateServer kvStateServer,
-		KvStateClientProxy kvStateClientProxy,
-		IOMode defaultIOMode,
-		int partitionRequestInitialBackoff,
-		int partitionRequestMaxBackoff,
-		int networkBuffersPerChannel,
-		int extraNetworkBuffersPerGate,
-		boolean enableCreditBased) {
+			NetworkBufferPool networkBufferPool,
+			ConnectionManager connectionManager,
+			ResultPartitionManager resultPartitionManager,
+			TaskEventPublisher taskEventPublisher,
+			int partitionRequestInitialBackoff,
+			int partitionRequestMaxBackoff,
+			int networkBuffersPerChannel,
+			int extraNetworkBuffersPerGate,
+			boolean enableCreditBased) {
 
 		this.networkBufferPool = checkNotNull(networkBufferPool);
 		this.connectionManager = checkNotNull(connectionManager);
 		this.resultPartitionManager = checkNotNull(resultPartitionManager);
-		this.taskEventDispatcher = checkNotNull(taskEventDispatcher);
-		this.kvStateRegistry = checkNotNull(kvStateRegistry);
-
-		this.kvStateServer = kvStateServer;
-		this.kvStateProxy = kvStateClientProxy;
-
-		this.defaultIOMode = defaultIOMode;
+		this.taskEventPublisher = checkNotNull(taskEventPublisher);
 
 		this.partitionRequestInitialBackoff = partitionRequestInitialBackoff;
 		this.partitionRequestMaxBackoff = partitionRequestMaxBackoff;
@@ -158,20 +124,12 @@ public class NetworkEnvironment {
 		return resultPartitionManager;
 	}
 
-	public TaskEventDispatcher getTaskEventDispatcher() {
-		return taskEventDispatcher;
-	}
-
 	public ConnectionManager getConnectionManager() {
 		return connectionManager;
 	}
 
 	public NetworkBufferPool getNetworkBufferPool() {
 		return networkBufferPool;
-	}
-
-	public IOMode getDefaultIOMode() {
-		return defaultIOMode;
 	}
 
 	public int getPartitionRequestInitialBackoff() {
@@ -184,22 +142,6 @@ public class NetworkEnvironment {
 
 	public boolean isCreditBased() {
 		return enableCreditBased;
-	}
-
-	public KvStateRegistry getKvStateRegistry() {
-		return kvStateRegistry;
-	}
-
-	public KvStateServer getKvStateServer() {
-		return kvStateServer;
-	}
-
-	public KvStateClientProxy getKvStateProxy() {
-		return kvStateProxy;
-	}
-
-	public TaskKvStateRegistry createKvStateTaskRegistry(JobID jobId, JobVertexID jobVertexId) {
-		return kvStateRegistry.createTaskRegistry(jobId, jobVertexId);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -254,8 +196,6 @@ public class NetworkEnvironment {
 				throw new IOException(t.getMessage(), t);
 			}
 		}
-
-		taskEventDispatcher.registerPartition(partition.getPartitionId());
 	}
 
 	@VisibleForTesting
@@ -305,8 +245,7 @@ public class NetworkEnvironment {
 			}
 
 			for (ResultPartition partition : task.getProducedPartitions()) {
-				taskEventDispatcher.unregisterPartition(partition.getPartitionId());
-				partition.destroyBufferPool();
+				partition.close();
 			}
 
 			final SingleInputGate[] inputGates = task.getAllInputGates();
@@ -315,7 +254,7 @@ public class NetworkEnvironment {
 				for (SingleInputGate gate : inputGates) {
 					try {
 						if (gate != null) {
-							gate.releaseAllResources();
+							gate.close();
 						}
 					}
 					catch (IOException e) {
@@ -334,29 +273,9 @@ public class NetworkEnvironment {
 
 			try {
 				LOG.debug("Starting network connection manager");
-				connectionManager.start(resultPartitionManager, taskEventDispatcher);
+				connectionManager.start(resultPartitionManager, taskEventPublisher);
 			} catch (IOException t) {
 				throw new IOException("Failed to instantiate network connection manager.", t);
-			}
-
-			if (kvStateServer != null) {
-				try {
-					kvStateServer.start();
-				} catch (Throwable ie) {
-					kvStateServer.shutdown();
-					kvStateServer = null;
-					LOG.error("Failed to start the Queryable State Data Server.", ie);
-				}
-			}
-
-			if (kvStateProxy != null) {
-				try {
-					kvStateProxy.start();
-				} catch (Throwable ie) {
-					kvStateProxy.shutdown();
-					kvStateProxy = null;
-					LOG.error("Failed to start the Queryable State Client Proxy.", ie);
-				}
 			}
 		}
 	}
@@ -371,24 +290,6 @@ public class NetworkEnvironment {
 			}
 
 			LOG.info("Shutting down the network environment and its components.");
-
-			if (kvStateProxy != null) {
-				try {
-					LOG.debug("Shutting down Queryable State Client Proxy.");
-					kvStateProxy.shutdown();
-				} catch (Throwable t) {
-					LOG.warn("Cannot shut down Queryable State Client Proxy.", t);
-				}
-			}
-
-			if (kvStateServer != null) {
-				try {
-					LOG.debug("Shutting down Queryable State Data Server.");
-					kvStateServer.shutdown();
-				} catch (Throwable t) {
-					LOG.warn("Cannot shut down Queryable State Data Server.", t);
-				}
-			}
 
 			// terminate all network connections
 			try {
@@ -407,8 +308,6 @@ public class NetworkEnvironment {
 			catch (Throwable t) {
 				LOG.warn("Cannot shut down the result partition manager.", t);
 			}
-
-			taskEventDispatcher.clearAll();
 
 			// make sure that the global buffer pool re-acquires all buffers
 			networkBufferPool.destroyAllBufferPools();

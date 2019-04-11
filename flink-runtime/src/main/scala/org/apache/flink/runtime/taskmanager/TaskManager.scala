@@ -50,7 +50,7 @@ import org.apache.flink.runtime.highavailability.HighAvailabilityServicesUtils.A
 import org.apache.flink.runtime.highavailability.{HighAvailabilityServices, HighAvailabilityServicesUtils}
 import org.apache.flink.runtime.instance.{ActorGateway, AkkaActorGateway, HardwareDescription, InstanceID}
 import org.apache.flink.runtime.io.disk.iomanager.IOManager
-import org.apache.flink.runtime.io.network.NetworkEnvironment
+import org.apache.flink.runtime.io.network.{NetworkEnvironment, TaskEventDispatcher}
 import org.apache.flink.runtime.io.network.netty.PartitionProducerStateChecker
 import org.apache.flink.runtime.io.network.partition.ResultPartitionConsumableNotifier
 import org.apache.flink.runtime.leaderretrieval.{LeaderRetrievalListener, LeaderRetrievalService}
@@ -68,7 +68,7 @@ import org.apache.flink.runtime.metrics.{MetricRegistryConfiguration, MetricRegi
 import org.apache.flink.runtime.process.ProcessReaper
 import org.apache.flink.runtime.security.{SecurityConfiguration, SecurityUtils}
 import org.apache.flink.runtime.state.{TaskExecutorLocalStateStoresManager, TaskStateManagerImpl}
-import org.apache.flink.runtime.taskexecutor.{TaskExecutor, TaskManagerConfiguration, TaskManagerServices, TaskManagerServicesConfiguration}
+import org.apache.flink.runtime.taskexecutor.{KvStateService, TaskExecutor, TaskManagerConfiguration, TaskManagerServices, TaskManagerServicesConfiguration}
 import org.apache.flink.runtime.util._
 import org.apache.flink.runtime.{FlinkActor, LeaderSessionMessageFilter, LogMessages}
 import org.apache.flink.util.NetUtils
@@ -127,6 +127,8 @@ class TaskManager(
     protected val memoryManager: MemoryManager,
     protected val ioManager: IOManager,
     protected val network: NetworkEnvironment,
+    protected val kvStateService: KvStateService,
+    protected val taskEventDispatcher: TaskEventDispatcher,
     protected val taskManagerLocalStateStoresManager: TaskExecutorLocalStateStoresManager,
     protected val numberOfSlots: Int,
     protected val highAvailabilityServices: HighAvailabilityServices,
@@ -941,10 +943,10 @@ class TaskManager(
         taskManagerConnection))
 
 
-    val kvStateServer = network.getKvStateServer()
+    val kvStateServer = kvStateService.getKvStateServer()
 
     if (kvStateServer != null) {
-      val kvStateRegistry = network.getKvStateRegistry()
+      val kvStateRegistry = kvStateService.getKvStateRegistry()
 
       kvStateRegistry.registerListener(
         HighAvailabilityServices.DEFAULT_JOB_ID,
@@ -953,7 +955,7 @@ class TaskManager(
           kvStateServer.getServerAddress))
     }
 
-    val proxy = network.getKvStateProxy
+    val proxy = kvStateService.getKvStateClientProxy
 
     if (proxy != null) {
       proxy.updateKvStateLocationOracle(
@@ -1071,11 +1073,11 @@ class TaskManager(
     // disassociate the slot environment
     connectionUtils = None
 
-    if (network.getKvStateRegistry != null) {
-      network.getKvStateRegistry.unregisterListener(HighAvailabilityServices.DEFAULT_JOB_ID)
+    if (kvStateService.getKvStateRegistry != null) {
+      kvStateService.getKvStateRegistry.unregisterListener(HighAvailabilityServices.DEFAULT_JOB_ID)
     }
 
-    val proxy = network.getKvStateProxy
+    val proxy = kvStateService.getKvStateClientProxy
 
     if (proxy != null) {
       // clear the key-value location oracle
@@ -1235,11 +1237,14 @@ class TaskManager(
         memoryManager,
         ioManager,
         network,
+        kvStateService,
         bcVarManager,
+        taskEventDispatcher,
         taskStateManager,
         taskManagerConnection,
         inputSplitProvider,
         checkpointResponder,
+        new ActorGatewayGlobalAggregateManager(),
         blobCache,
         libCache,
         fileCache,
@@ -1845,8 +1850,6 @@ object TaskManager {
     val metricRegistry = new MetricRegistryImpl(
       MetricRegistryConfiguration.fromConfiguration(configuration))
 
-    metricRegistry.startQueryService(taskManagerSystem, resourceID)
-
     // start all the TaskManager services (network stack,  library cache, ...)
     // and the TaskManager actor
     try {
@@ -1881,8 +1884,6 @@ object TaskManager {
           Props(classOf[QuarantineMonitor], quarantineHandler, LOG.logger)
         )
       }
-
-      MemoryLogger.startIfConfigured(LOG.logger, configuration, taskManagerSystem)
 
       // block until everything is done
       Await.ready(taskManagerSystem.whenTerminated, Duration.Inf)
@@ -2030,6 +2031,8 @@ object TaskManager {
       taskManagerServices.getMemoryManager(),
       taskManagerServices.getIOManager(),
       taskManagerServices.getNetworkEnvironment(),
+      taskManagerServices.getKvStateService,
+      taskManagerServices.getTaskEventDispatcher,
       taskManagerServices.getTaskManagerStateStore(),
       highAvailabilityServices,
       taskManagerMetricGroup)
@@ -2048,6 +2051,8 @@ object TaskManager {
     memoryManager: MemoryManager,
     ioManager: IOManager,
     networkEnvironment: NetworkEnvironment,
+    kvStateService: KvStateService,
+    taskEventDispatcher: TaskEventDispatcher,
     taskStateManager: TaskExecutorLocalStateStoresManager,
     highAvailabilityServices: HighAvailabilityServices,
     taskManagerMetricGroup: TaskManagerMetricGroup
@@ -2060,6 +2065,8 @@ object TaskManager {
       memoryManager,
       ioManager,
       networkEnvironment,
+      kvStateService,
+      taskEventDispatcher,
       taskStateManager,
       taskManagerConfig.getNumberSlots(),
       highAvailabilityServices,
