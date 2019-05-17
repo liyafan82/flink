@@ -1,0 +1,211 @@
+public class BatchExecCalcRule$30 extends org.apache.flink.table.runtime.TableStreamOperator
+	implements org.apache.flink.streaming.api.operators.OneInputStreamOperator {
+
+	private final Object[] references;
+	final org.apache.flink.table.dataformat.BoxedWrapperRow out = new org.apache.flink.table.dataformat.BoxedWrapperRow(7);
+	private final org.apache.flink.streaming.runtime.streamrecord.StreamRecord outElement = new org.apache.flink.streaming.runtime.streamrecord.StreamRecord(null);
+
+	public BatchExecCalcRule$30(Object[] references) throws Exception {
+		this.references = references;
+
+	}
+
+	@Override
+	public void open() throws Exception {
+		super.open();
+
+	}
+
+	@Override
+	public void processElement(org.apache.flink.streaming.runtime.streamrecord.StreamRecord element) throws Exception {
+		org.apache.flink.table.dataformat.BaseRow in1 = (org.apache.flink.table.dataformat.BaseRow) element.getValue();
+
+		boolean isNull$0;
+		int field$1;
+		boolean isNull$4;
+		org.apache.flink.table.dataformat.BinaryString field$6;
+		boolean isNull$7;
+		org.apache.flink.table.dataformat.BinaryString field$9;
+		boolean isNull$10;
+		double field$11;
+		boolean isNull$12;
+		double field$13;
+		boolean isNull$14;
+		double field$15;
+		boolean isNull$24;
+		double field$25;
+
+
+		isNull$0 = in1.isNullAt(6);
+		field$1 = -1;
+		if (!isNull$0) {
+			field$1 = in1.getInt(6);
+		}
+
+
+
+		boolean isNull$3 = isNull$0 || false;
+		boolean result$2 = false;
+		if (!isNull$3) {
+
+			result$2 = field$1 <= ((int)10196);
+
+		}
+
+		if (result$2) {
+			isNull$7 = in1.isNullAt(5);
+			field$9 = org.apache.flink.table.dataformat.BinaryString.EMPTY_UTF8;
+			if (!isNull$7) {
+				field$9 = in1.getString(5);
+			}
+			isNull$10 = in1.isNullAt(0);
+			field$11 = -1.0d;
+			if (!isNull$10) {
+				field$11 = in1.getDouble(0);
+			}
+			isNull$14 = in1.isNullAt(2);
+			field$15 = -1.0d;
+			if (!isNull$14) {
+				field$15 = in1.getDouble(2);
+			}
+			isNull$4 = in1.isNullAt(4);
+			field$6 = org.apache.flink.table.dataformat.BinaryString.EMPTY_UTF8;
+			if (!isNull$4) {
+				field$6 = in1.getString(4);
+			}
+			isNull$12 = in1.isNullAt(1);
+			field$13 = -1.0d;
+			if (!isNull$12) {
+				field$13 = in1.getDouble(1);
+			}
+			isNull$24 = in1.isNullAt(3);
+			field$25 = -1.0d;
+			if (!isNull$24) {
+				field$25 = in1.getDouble(3);
+			}
+
+
+			if (isNull$4) {
+				out.setNullAt(0);
+			} else {
+				out.setNonPrimitiveValue(0, field$6);
+			}
+
+
+			if (isNull$7) {
+				out.setNullAt(1);
+			} else {
+				out.setNonPrimitiveValue(1, field$9);
+			}
+
+
+			if (isNull$10) {
+				out.setNullAt(2);
+			} else {
+				out.setDouble(2, field$11);
+			}
+
+
+			if (isNull$12) {
+				out.setNullAt(3);
+			} else {
+				out.setDouble(3, field$13);
+			}
+
+
+
+
+
+
+			boolean isNull$17 = false || isNull$14;
+			double result$16 = -1.0d;
+			if (!isNull$17) {
+
+				result$16 = (double) ((new java.lang.Integer(((int)1))).doubleValue() - field$15);
+
+			}
+
+			boolean isNull$19 = isNull$12 || isNull$17;
+			double result$18 = -1.0d;
+			if (!isNull$19) {
+
+				result$18 = (double) (field$13 * result$16);
+
+			}
+
+			if (isNull$19) {
+				out.setNullAt(4);
+			} else {
+				out.setDouble(4, result$18);
+			}
+
+
+
+
+
+
+
+			boolean isNull$21 = false || isNull$14;
+			double result$20 = -1.0d;
+			if (!isNull$21) {
+
+				result$20 = (double) ((new java.lang.Integer(((int)1))).doubleValue() - field$15);
+
+			}
+
+			boolean isNull$23 = isNull$12 || isNull$21;
+			double result$22 = -1.0d;
+			if (!isNull$23) {
+
+				result$22 = (double) (field$13 * result$20);
+
+			}
+
+
+
+
+			boolean isNull$27 = false || isNull$24;
+			double result$26 = -1.0d;
+			if (!isNull$27) {
+
+				result$26 = (double) ((new java.lang.Integer(((int)1))).doubleValue() + field$25);
+
+			}
+
+			boolean isNull$29 = isNull$23 || isNull$27;
+			double result$28 = -1.0d;
+			if (!isNull$29) {
+
+				result$28 = (double) (result$22 * result$26);
+
+			}
+
+			if (isNull$29) {
+				out.setNullAt(5);
+			} else {
+				out.setDouble(5, result$28);
+			}
+
+
+			if (isNull$14) {
+				out.setNullAt(6);
+			} else {
+				out.setDouble(6, field$15);
+			}
+			output.collect(outElement.replace(out));
+
+
+		}
+	}
+
+	public void endInput() throws Exception {
+	}
+
+	@Override
+	public void close() throws Exception {
+		super.close();
+
+	}
+
+
+}
