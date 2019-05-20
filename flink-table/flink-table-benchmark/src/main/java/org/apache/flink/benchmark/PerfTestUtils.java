@@ -18,6 +18,7 @@
 
 package org.apache.flink.benchmark;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
@@ -37,6 +38,7 @@ import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Random;
 
 /**
@@ -101,9 +103,9 @@ public class PerfTestUtils {
 	 * @return the class code.
 	 */
 	public String loadSourceFile(String className) throws IOException {
-		String codeDir = getClass().getClassLoader().getResource("codegen").getFile();
-		File sourceFile = new File(codeDir, className + ".code");
-		return FileUtils.readFileToString(sourceFile);
+		try (InputStream in = getClass().getClassLoader().getResourceAsStream("codegen/" + className + ".code")) {
+			return IOUtils.toString(in);
+		}
 	}
 
 	/**
