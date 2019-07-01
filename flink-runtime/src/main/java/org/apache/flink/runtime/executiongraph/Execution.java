@@ -668,14 +668,10 @@ public class Execution implements AccessExecution, Archiveable<ArchivedExecution
 	}
 
 	private static int getPartitionMaxParallelism(IntermediateResultPartition partition) {
-		// TODO consumers.isEmpty() only exists for test, currently there has to be exactly one consumer in real jobs!
 		final List<List<ExecutionEdge>> consumers = partition.getConsumers();
-		int maxParallelism = KeyGroupRangeAssignment.UPPER_BOUND_MAX_PARALLELISM;
-		if (!consumers.isEmpty()) {
-			List<ExecutionEdge> consumer = consumers.get(0);
-			ExecutionJobVertex consumerVertex = consumer.get(0).getTarget().getJobVertex();
-			maxParallelism = consumerVertex.getMaxParallelism();
-		}
+		List<ExecutionEdge> consumer = consumers.get(0);
+		ExecutionJobVertex consumerVertex = consumer.get(0).getTarget().getJobVertex();
+		int maxParallelism = consumerVertex.getMaxParallelism();
 		return maxParallelism;
 	}
 
